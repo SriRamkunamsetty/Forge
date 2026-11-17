@@ -23,14 +23,16 @@ export default function ChallengeClientView({ challenge }: Props) {
     certId: string;
   } | null>(null);
 
-  // Time remaining calculator
-  const [timeLeft, setTimeLeft] = useState("06:41:22");
+  // Time remaining calculator (neutral initial state to prevent hydration mismatches)
+  const [timeLeft, setTimeLeft] = useState<string>("--:--:--");
+  const [isClosed, setIsClosed] = useState<boolean>(false);
 
   useEffect(() => {
     function updateCountdown() {
       const diff = new Date(challenge.closesAt).getTime() - Date.now();
-      if (diff <= 0) {
+      if (diff <= 0 || challenge.status !== "LIVE") {
         setTimeLeft("Closed");
+        setIsClosed(true);
         return;
       }
       const hours = Math.floor(diff / (1000 * 60 * 60));
@@ -39,21 +41,22 @@ export default function ChallengeClientView({ challenge }: Props) {
       setTimeLeft(
         `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`
       );
+      setIsClosed(false);
     }
 
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
-  }, [challenge.closesAt]);
+  }, [challenge.closesAt, challenge.status]);
 
   const handleSubmitSolution = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!repoUrl) return;
+    if (!repoUrl || isClosed) return;
 
     setSubmitting(true);
     setEvalResult(null);
 
-    // Simulate real-time grading pipeline
+    // Simulated benchmark grading pipeline
     setTimeout(() => {
       setSubmitting(false);
       setEvalResult({
@@ -71,7 +74,7 @@ export default function ChallengeClientView({ challenge }: Props) {
       <div className="rounded-2xl border border-ink-line bg-ink-soft p-6 sm:p-8">
         <div className="flex flex-wrap items-center gap-3">
           <span className="flex items-center gap-2 rounded-full bg-accent/15 px-3 py-1 font-mono text-xs font-semibold text-accent">
-            <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
+            <span className="h-2 w-2 rounded-full bg-accent motion-safe:animate-pulse" />
             {challenge.status}
           </span>
           <span className="rounded-full border border-ink-line bg-ink px-3 py-1 font-mono text-xs text-muted-dark">
@@ -99,7 +102,7 @@ export default function ChallengeClientView({ challenge }: Props) {
               Enrolled Builders
             </p>
             <p className="mt-1 font-display text-2xl font-bold text-paper">
-              {challenge.participantsCount.toLocaleString()}
+              {challenge.participantsCount.toLocaleString("en-US")}
             </p>
           </div>
           <div>
@@ -107,7 +110,7 @@ export default function ChallengeClientView({ challenge }: Props) {
               Total Submissions
             </p>
             <p className="mt-1 font-display text-2xl font-bold text-paper">
-              {challenge.submissionsCount.toLocaleString()}
+              {challenge.submissionsCount.toLocaleString("en-US")}
             </p>
           </div>
           <div>
@@ -129,8 +132,12 @@ export default function ChallengeClientView({ challenge }: Props) {
         </div>
       </div>
 
-      {/* Interactive Tabs */}
-      <div className="flex border-b border-ink-line gap-2 overflow-x-auto pb-px">
+      {/* Accessible Tab List */}
+      <div
+        role="tablist"
+        aria-label="Challenge sections"
+        className="flex border-b border-ink-line gap-2 overflow-x-auto pb-px"
+      >
         {[
           { id: "specs", label: "Overview & Specs" },
           { id: "evaluation", label: "Auto-Evaluation Benchmark" },
@@ -139,6 +146,11 @@ export default function ChallengeClientView({ challenge }: Props) {
         ].map((t) => (
           <button
             key={t.id}
+            id={`tab-${t.id}`}
+            role="tab"
+            aria-selected={tab === t.id}
+            aria-controls={`panel-${t.id}`}
+            tabIndex={tab === t.id ? 0 : -1}
             onClick={() => setTab(t.id as any)}
             className={`whitespace-nowrap px-4 py-3 text-sm font-semibold transition-colors border-b-2 ${
               tab === t.id
@@ -153,14 +165,24 @@ export default function ChallengeClientView({ challenge }: Props) {
 
       {/* Tab 1: Overview & Specs */}
       {tab === "specs" && (
-        <div className="space-y-8 animate-fade-up">
+        <div
+          id="panel-specs"
+          role="tabpanel"
+          aria-labelledby="tab-specs"
+          className="space-y-8 motion-safe:animate-fade-up"
+        >
+          <div className="rounded-2xl border border-ink-line bg-ink-soft p-6">
+            <h2 className="font-display text-xl font-bold text-paper">Program Overview</h2>
+            <p className="mt-3 leading-relaxed text-paper/80">{challenge.overview}</p>
+          </div>
+
           <div className="rounded-2xl border border-ink-line bg-ink-soft p-6">
             <h2 className="font-display text-xl font-bold text-paper">Problem Statement</h2>
             <p className="mt-3 leading-relaxed text-paper/80">{challenge.problemStatement}</p>
           </div>
 
           <div className="rounded-2xl border border-ink-line bg-ink-soft p-6">
-            <h2 className="font-display text-xl font-bold text-paper">Technical Requirements</h2>
+            <h2 className="font-display text-xl font-bold text-paper">Technical Specifications</h2>
             <ul className="mt-4 space-y-3">
               {challenge.specifications.map((spec, i) => (
                 <li key={i} className="flex items-start gap-3 text-sm text-paper/85">
@@ -186,10 +208,15 @@ export default function ChallengeClientView({ challenge }: Props) {
 
       {/* Tab 2: Evaluation */}
       {tab === "evaluation" && (
-        <div className="rounded-2xl border border-ink-line bg-ink-soft p-6 sm:p-8 animate-fade-up">
-          <h2 className="font-display text-2xl font-bold text-paper">Automated Scoring Breakdown</h2>
+        <div
+          id="panel-evaluation"
+          role="tabpanel"
+          aria-labelledby="tab-evaluation"
+          className="rounded-2xl border border-ink-line bg-ink-soft p-6 sm:p-8 motion-safe:animate-fade-up"
+        >
+          <h2 className="font-display text-2xl font-bold text-paper">Automated Scoring Benchmark</h2>
           <p className="mt-2 text-sm text-muted-dark">
-            Solutions are automatically compiled and benchmarked inside isolated microVM sandboxes upon submission.
+            Solutions are automatically evaluated inside isolated microVM sandboxes upon submission.
           </p>
 
           <div className="mt-6 divide-y divide-ink-line border-y border-ink-line">
@@ -210,9 +237,15 @@ export default function ChallengeClientView({ challenge }: Props) {
 
       {/* Tab 3: Leaderboard */}
       {tab === "leaderboard" && (
-        <div className="rounded-2xl border border-ink-line bg-ink-soft overflow-hidden animate-fade-up">
-          <div className="border-b border-ink-line px-6 py-4">
-            <h2 className="font-display text-lg font-bold text-paper">Real-time Leaderboard</h2>
+        <div
+          id="panel-leaderboard"
+          role="tabpanel"
+          aria-labelledby="tab-leaderboard"
+          className="rounded-2xl border border-ink-line bg-ink-soft overflow-hidden motion-safe:animate-fade-up"
+        >
+          <div className="border-b border-ink-line px-6 py-4 flex items-center justify-between">
+            <h2 className="font-display text-lg font-bold text-paper">Leaderboard Standings</h2>
+            <span className="font-mono text-xs text-muted-dark">Updated continuously</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -263,86 +296,99 @@ export default function ChallengeClientView({ challenge }: Props) {
 
       {/* Tab 4: Submit Solution */}
       {tab === "submit" && (
-        <div className="rounded-2xl border border-ink-line bg-ink-soft p-6 sm:p-8 animate-fade-up">
-          <h2 className="font-display text-2xl font-bold text-paper">Submit Your Implementation</h2>
+        <div
+          id="panel-submit"
+          role="tabpanel"
+          aria-labelledby="tab-submit"
+          className="rounded-2xl border border-ink-line bg-ink-soft p-6 sm:p-8 motion-safe:animate-fade-up"
+        >
+          <h2 className="font-display text-2xl font-bold text-paper">Submit Your Solution</h2>
           <p className="mt-2 text-sm text-muted-dark">
-            Provide your public GitHub repository. Our automated sandbox runner will execute test suites and compute your skill score.
+            Provide your public repository. The automated evaluation pipeline will clone and benchmark your build against standard test cases.
           </p>
 
-          <form onSubmit={handleSubmitSolution} className="mt-6 space-y-5">
-            <div>
-              <label htmlFor="repo-url" className="block text-xs font-mono text-muted-dark uppercase tracking-wider mb-2">
-                GitHub Repository URL
-              </label>
-              <input
-                id="repo-url"
-                type="url"
-                required
-                value={repoUrl}
-                onChange={(e) => setRepoUrl(e.target.value)}
-                placeholder="https://github.com/your-username/fraud-scoring-solution"
-                className="w-full rounded-xl border border-ink-line bg-ink px-4 py-3 text-sm text-paper outline-none focus:border-accent"
-              />
+          {isClosed ? (
+            <div className="mt-6 rounded-xl border border-red-500/30 bg-red-950/20 p-5 text-sm text-red-300">
+              This challenge is currently closed for new submissions.
             </div>
+          ) : (
+            <form onSubmit={handleSubmitSolution} className="mt-6 space-y-5">
+              <div>
+                <label htmlFor="repo-url" className="block text-xs font-mono text-muted-dark uppercase tracking-wider mb-2">
+                  GitHub Repository URL
+                </label>
+                <input
+                  id="repo-url"
+                  type="url"
+                  required
+                  value={repoUrl}
+                  onChange={(e) => setRepoUrl(e.target.value)}
+                  placeholder="https://github.com/your-username/fraud-scoring-solution"
+                  className="w-full rounded-xl border border-ink-line bg-ink px-4 py-3 text-sm text-paper outline-none focus:border-accent"
+                />
+              </div>
 
-            <div>
-              <label htmlFor="branch" className="block text-xs font-mono text-muted-dark uppercase tracking-wider mb-2">
-                Target Branch
-              </label>
-              <input
-                id="branch"
-                type="text"
-                required
-                value={branch}
-                onChange={(e) => setBranch(e.target.value)}
-                className="w-full rounded-xl border border-ink-line bg-ink px-4 py-3 text-sm text-paper outline-none focus:border-accent"
-              />
-            </div>
+              <div>
+                <label htmlFor="branch" className="block text-xs font-mono text-muted-dark uppercase tracking-wider mb-2">
+                  Target Branch
+                </label>
+                <input
+                  id="branch"
+                  type="text"
+                  required
+                  value={branch}
+                  onChange={(e) => setBranch(e.target.value)}
+                  className="w-full rounded-xl border border-ink-line bg-ink px-4 py-3 text-sm text-paper outline-none focus:border-accent"
+                />
+              </div>
 
-            <div>
-              <label htmlFor="notes" className="block text-xs font-mono text-muted-dark uppercase tracking-wider mb-2">
-                Architecture Notes (Optional)
-              </label>
-              <textarea
-                id="notes"
-                rows={3}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Briefly describe key design decisions, cache invalidation strategy, and concurrency primitives..."
-                className="w-full rounded-xl border border-ink-line bg-ink px-4 py-3 text-sm text-paper outline-none focus:border-accent"
-              />
-            </div>
+              <div>
+                <label htmlFor="notes" className="block text-xs font-mono text-muted-dark uppercase tracking-wider mb-2">
+                  Architecture Notes (Optional)
+                </label>
+                <textarea
+                  id="notes"
+                  rows={3}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Briefly describe key design decisions, cache invalidation strategy, and concurrency primitives..."
+                  className="w-full rounded-xl border border-ink-line bg-ink px-4 py-3 text-sm text-paper outline-none focus:border-accent"
+                />
+              </div>
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="btn-accent w-full sm:w-auto disabled:opacity-50"
-            >
-              {submitting ? "Running Automated Evaluation Suite…" : "Submit & Run Auto-Grader"}
-              {!submitting && <ArrowRight width={16} height={16} />}
-            </button>
-          </form>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="btn-accent w-full sm:w-auto disabled:opacity-50"
+              >
+                {submitting ? "Running Automated Evaluation Suite…" : "Submit & Run Auto-Grader"}
+                {!submitting && <ArrowRight width={16} height={16} />}
+              </button>
+            </form>
+          )}
 
           {/* Test suite execution feedback */}
           {submitting && (
             <div className="mt-6 rounded-xl border border-ink-line bg-ink p-4 font-mono text-xs text-muted-dark space-y-2">
-              <p className="animate-pulse text-accent">› spinning up ephemeral test runner container…</p>
+              <p className="motion-safe:animate-pulse text-accent">› spinning up ephemeral test runner container…</p>
               <p>› cloning repository and verifying dependencies…</p>
               <p>› executing concurrency stress tests (2,000 req/sec)…</p>
             </div>
           )}
 
           {evalResult && (
-            <div className="mt-8 rounded-xl border border-accent/40 bg-accent/10 p-6 animate-fade-up">
+            <div className="mt-8 rounded-xl border border-accent/40 bg-accent/10 p-6 motion-safe:animate-fade-up">
               <div className="flex items-center gap-3">
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-ink">
                   <Check width={18} height={18} strokeWidth={2.6} />
                 </span>
                 <div>
                   <h3 className="font-display text-lg font-bold text-accent">
-                    Evaluation Passed · Verified Skill Score: {evalResult.score}
+                    Evaluation Passed · Simulated Score: {evalResult.score}
                   </h3>
-                  <p className="font-mono text-xs text-paper/70">Certificate ID: {evalResult.certId}</p>
+                  <p className="font-mono text-xs text-paper/70">
+                    Certificate ID: {evalResult.certId} (Simulated Benchmark Demo)
+                  </p>
                 </div>
               </div>
 

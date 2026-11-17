@@ -135,6 +135,7 @@ export default function Waitlist() {
                       <button
                         type="button"
                         role="radio"
+                        data-intent={it.id}
                         aria-checked={form.intent === it.id}
                         tabIndex={form.intent === it.id ? 0 : -1}
                         key={it.id}
@@ -142,7 +143,10 @@ export default function Waitlist() {
                         onKeyDown={(e) => {
                           if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowUp") {
                             e.preventDefault();
-                            update("intent", it.id === "company" ? "builder" : "company");
+                            const nextIntent = it.id === "company" ? "builder" : "company";
+                            update("intent", nextIntent);
+                            const nextBtn = e.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`[data-intent="${nextIntent}"]`);
+                            nextBtn?.focus();
                           }
                         }}
                         className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${

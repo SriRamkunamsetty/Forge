@@ -15,22 +15,35 @@ export interface LeadsStorageAdapter {
 }
 
 /**
- * In-Memory Adapter (default, ideal for tests & ephemeral demos)
+ * In-Memory Adapter (ideal for tests & ephemeral demos)
  */
 export class MemoryLeadsAdapter implements LeadsStorageAdapter {
   private leads: Lead[] = [];
+  private writeLock: Promise<void> = Promise.resolve();
 
   async addLead(value: Omit<Lead, "id" | "createdAt">): Promise<Lead> {
-    const existing = await this.findLeadByEmail(value.email);
-    if (existing) return existing;
+    // Serialize writes to prevent race-condition duplicates
+    let resolveLock!: () => void;
+    const currentLock = this.writeLock;
+    this.writeLock = new Promise<void>((res) => {
+      resolveLock = res;
+    });
 
-    const lead: Lead = {
-      id: `ld_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
-      ...value,
-      createdAt: new Date().toISOString(),
-    };
-    this.leads.push(lead);
-    return lead;
+    try {
+      await currentLock;
+      const existing = await this.findLeadByEmail(value.email);
+      if (existing) return existing;
+
+      const lead: Lead = {
+        id: `ld_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+        ...value,
+        createdAt: new Date().toISOString(),
+      };
+      this.leads.push(lead);
+      return lead;
+    } finally {
+      resolveLock();
+    }
   }
 
   async listLeads(): Promise<Lead[]> {
@@ -51,10 +64,12 @@ export class MemoryLeadsAdapter implements LeadsStorageAdapter {
 }
 
 /**
- * File-backed JSON Storage Adapter (persists to local disk across server restarts)
+ * File-backed JSON Storage Adapter with atomic writes
+ * (persists to local disk across server restarts)
  */
 export class FileLeadsAdapter implements LeadsStorageAdapter {
   private filePath: string;
+  private writeLock: Promise<void> = Promise.resolve();
 
   constructor(filePath?: string) {
     this.filePath =
@@ -67,7 +82,7 @@ export class FileLeadsAdapter implements LeadsStorageAdapter {
       await fs.promises.mkdir(dir, { recursive: true });
     }
     if (!fs.existsSync(this.filePath)) {
-      await fs.promises.writeFile(this.filePath, JSON.stringify([], null, 2), "utf8");
+      await this.atomicWrite([]);
     }
   }
 
@@ -76,29 +91,50 @@ export class FileLeadsAdapter implements LeadsStorageAdapter {
     try {
       const data = await fs.promises.readFile(this.filePath, "utf8");
       return JSON.parse(data) as Lead[];
-    } catch {
-      return [];
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        return [];
+      }
+      // Fail closed on file corruption to prevent silent data loss
+      throw new Error(`Failed to parse leads storage file: ${(err as Error).message}`);
     }
   }
 
-  private async writeAll(leads: Lead[]): Promise<void> {
-    await this.ensureFile();
-    await fs.promises.writeFile(this.filePath, JSON.stringify(leads, null, 2), "utf8");
+  private async atomicWrite(leads: Lead[]): Promise<void> {
+    const dir = path.dirname(this.filePath);
+    if (!fs.existsSync(dir)) {
+      await fs.promises.mkdir(dir, { recursive: true });
+    }
+
+    const tempPath = `${this.filePath}.tmp.${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    await fs.promises.writeFile(tempPath, JSON.stringify(leads, null, 2), "utf8");
+    await fs.promises.rename(tempPath, this.filePath);
   }
 
   async addLead(value: Omit<Lead, "id" | "createdAt">): Promise<Lead> {
-    const leads = await this.readAll();
-    const existing = leads.find((l) => l.email.toLowerCase() === value.email.toLowerCase());
-    if (existing) return existing;
+    let resolveLock!: () => void;
+    const currentLock = this.writeLock;
+    this.writeLock = new Promise<void>((res) => {
+      resolveLock = res;
+    });
 
-    const lead: Lead = {
-      id: `ld_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
-      ...value,
-      createdAt: new Date().toISOString(),
-    };
-    leads.push(lead);
-    await this.writeAll(leads);
-    return lead;
+    try {
+      await currentLock;
+      const leads = await this.readAll();
+      const existing = leads.find((l) => l.email.toLowerCase() === value.email.toLowerCase());
+      if (existing) return existing;
+
+      const lead: Lead = {
+        id: `ld_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+        ...value,
+        createdAt: new Date().toISOString(),
+      };
+      leads.push(lead);
+      await this.atomicWrite(leads);
+      return lead;
+    } finally {
+      resolveLock();
+    }
   }
 
   async listLeads(): Promise<Lead[]> {
@@ -116,7 +152,18 @@ export class FileLeadsAdapter implements LeadsStorageAdapter {
   }
 
   async clear(): Promise<void> {
-    await this.writeAll([]);
+    let resolveLock!: () => void;
+    const currentLock = this.writeLock;
+    this.writeLock = new Promise<void>((res) => {
+      resolveLock = res;
+    });
+
+    try {
+      await currentLock;
+      await this.atomicWrite([]);
+    } finally {
+      resolveLock();
+    }
   }
 }
 
@@ -125,11 +172,17 @@ export class FileLeadsAdapter implements LeadsStorageAdapter {
  * Configurable via LEADS_STORAGE_ADAPTER=memory|file
  */
 export function createStorageAdapter(): LeadsStorageAdapter {
-  const adapterType = process.env.LEADS_STORAGE_ADAPTER?.toLowerCase();
+  const rawType = process.env.LEADS_STORAGE_ADAPTER;
+  if (!rawType || rawType.toLowerCase() === "memory") {
+    return new MemoryLeadsAdapter();
+  }
 
-  if (adapterType === "file") {
+  const normalized = rawType.toLowerCase().trim();
+  if (normalized === "file") {
     return new FileLeadsAdapter();
   }
 
-  return new MemoryLeadsAdapter();
+  throw new Error(
+    `Unsupported LEADS_STORAGE_ADAPTER "${rawType}". Valid options are "memory" or "file".`
+  );
 }

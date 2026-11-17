@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   validateLead,
   addLead,
@@ -133,11 +133,16 @@ describe("leads-store", () => {
   describe("FileLeadsAdapter", () => {
     const testFile = path.join(process.cwd(), ".data", "test-leads.json");
 
-    beforeEach(async () => {
+    const cleanup = async () => {
       if (fs.existsSync(testFile)) {
-        await fs.promises.unlink(testFile);
+        try {
+          await fs.promises.unlink(testFile);
+        } catch {}
       }
-    });
+    };
+
+    beforeEach(cleanup);
+    afterEach(cleanup);
 
     it("should persist and reload leads from disk", async () => {
       const adapter = new FileLeadsAdapter(testFile);

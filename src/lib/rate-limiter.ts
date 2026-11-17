@@ -5,6 +5,7 @@ interface RateLimitRecord {
 }
 
 const ipRequestMap = new Map<string, RateLimitRecord>();
+const MAX_ENTRIES = 5000;
 
 // Clean up stale IP records every 5 minutes
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
@@ -12,7 +13,7 @@ let lastCleanup = Date.now();
 
 function cleanupStaleRecords(windowMs: number) {
   const now = Date.now();
-  if (now - lastCleanup < CLEANUP_INTERVAL_MS) return;
+  if (now - lastCleanup < CLEANUP_INTERVAL_MS && ipRequestMap.size < MAX_ENTRIES) return;
   lastCleanup = now;
 
   const threshold = now - windowMs;
@@ -24,6 +25,12 @@ function cleanupStaleRecords(windowMs: number) {
       record.timestamps = valid;
     }
   });
+
+  // Hard bound protection: if still over MAX_ENTRIES, evict oldest entries
+  if (ipRequestMap.size >= MAX_ENTRIES) {
+    const keysToEvict = Array.from(ipRequestMap.keys()).slice(0, 1000);
+    keysToEvict.forEach((k) => ipRequestMap.delete(k));
+  }
 }
 
 export interface RateLimitResult {
@@ -34,11 +41,7 @@ export interface RateLimitResult {
 }
 
 /**
- * Sliding window in-memory rate limiter.
- *
- * @param ip Client IP address or unique client identifier
- * @param limit Max allowed requests within the time window (default: 5)
- * @param windowMs Time window in milliseconds (default: 60,000ms = 1 minute)
+ * Sliding window in-memory rate limiter with bounded cardinality.
  */
 export function rateLimit(
   ip: string,
@@ -86,16 +89,16 @@ export function _resetRateLimiter(): void {
   ipRequestMap.clear();
 }
 
-/** Extract reliable client IP from headers */
+/** Extract reliable client IP */
 export function getClientIp(req: NextRequest): string {
   const forwardedFor = req.headers.get("x-forwarded-for");
   if (forwardedFor) {
     const firstIp = forwardedFor.split(",")[0].trim();
-    if (firstIp) return firstIp;
+    if (firstIp && /^[0-9a-fA-F:.]+$/.test(firstIp)) return firstIp;
   }
 
   const realIp = req.headers.get("x-real-ip");
-  if (realIp) return realIp.trim();
+  if (realIp && /^[0-9a-fA-F:.]+$/.test(realIp.trim())) return realIp.trim();
 
-  return req.ip || "127.0.0.1";
+  return req.ip || "unknown-client";
 }
