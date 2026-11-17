@@ -89,7 +89,9 @@ export function leadCount(): number {
   return leads.length;
 }
 
-/** Reset helper for test environments. */
+/** Reset helper for test environments only. */
 export function _resetLeadsForTesting(): void {
-  leads.length = 0;
+  if (process.env.NODE_ENV === "test") {
+    leads.length = 0;
+  }
 }
