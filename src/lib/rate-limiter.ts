@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import net from "net";
 
 interface RateLimitRecord {
   timestamps: number[];
@@ -89,16 +90,28 @@ export function _resetRateLimiter(): void {
   ipRequestMap.clear();
 }
 
+/** Helper to check whether a string is a valid IPv4 or IPv6 address */
+export function isValidIp(ip: string): boolean {
+  if (!ip || typeof ip !== "string") return false;
+  return net.isIP(ip.trim()) !== 0;
+}
+
 /** Extract reliable client IP */
 export function getClientIp(req: NextRequest): string {
+  if (req.ip && isValidIp(req.ip)) {
+    return req.ip.trim();
+  }
+
   const forwardedFor = req.headers.get("x-forwarded-for");
   if (forwardedFor) {
     const firstIp = forwardedFor.split(",")[0].trim();
-    if (firstIp && /^[0-9a-fA-F:.]+$/.test(firstIp)) return firstIp;
+    if (isValidIp(firstIp)) return firstIp;
   }
 
   const realIp = req.headers.get("x-real-ip");
-  if (realIp && /^[0-9a-fA-F:.]+$/.test(realIp.trim())) return realIp.trim();
+  if (realIp && isValidIp(realIp.trim())) {
+    return realIp.trim();
+  }
 
-  return req.ip || "unknown-client";
+  return "unknown-client";
 }

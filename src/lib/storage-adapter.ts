@@ -76,18 +76,7 @@ export class FileLeadsAdapter implements LeadsStorageAdapter {
       filePath || path.join(process.cwd(), ".data", "leads.json");
   }
 
-  private async ensureFile(): Promise<void> {
-    const dir = path.dirname(this.filePath);
-    if (!fs.existsSync(dir)) {
-      await fs.promises.mkdir(dir, { recursive: true });
-    }
-    if (!fs.existsSync(this.filePath)) {
-      await this.atomicWrite([]);
-    }
-  }
-
   private async readAll(): Promise<Lead[]> {
-    await this.ensureFile();
     try {
       const data = await fs.promises.readFile(this.filePath, "utf8");
       return JSON.parse(data) as Lead[];
@@ -173,11 +162,15 @@ export class FileLeadsAdapter implements LeadsStorageAdapter {
  */
 export function createStorageAdapter(): LeadsStorageAdapter {
   const rawType = process.env.LEADS_STORAGE_ADAPTER;
-  if (!rawType || rawType.toLowerCase() === "memory") {
+  if (!rawType) {
     return new MemoryLeadsAdapter();
   }
 
-  const normalized = rawType.toLowerCase().trim();
+  const normalized = rawType.trim().toLowerCase();
+  if (normalized === "memory") {
+    return new MemoryLeadsAdapter();
+  }
+
   if (normalized === "file") {
     return new FileLeadsAdapter();
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { rateLimit, _resetRateLimiter } from "../rate-limiter";
+import { rateLimit, _resetRateLimiter, isValidIp } from "../rate-limiter";
 
 describe("rate-limiter", () => {
   beforeEach(() => {
@@ -42,5 +42,21 @@ describe("rate-limiter", () => {
 
     const allowedIp2 = rateLimit(ip2, 1, 10000);
     expect(allowedIp2.success).toBe(true);
+  });
+
+  describe("isValidIp", () => {
+    it("should accept valid IPv4 and IPv6 addresses", () => {
+      expect(isValidIp("127.0.0.1")).toBe(true);
+      expect(isValidIp("192.168.1.1")).toBe(true);
+      expect(isValidIp("::1")).toBe(true);
+      expect(isValidIp("2001:0db8:85a3:0000:0000:8a2e:0370:7334")).toBe(true);
+    });
+
+    it("should reject invalid or malformed IP strings", () => {
+      expect(isValidIp("dead:beef")).toBe(false);
+      expect(isValidIp("not-an-ip")).toBe(false);
+      expect(isValidIp("999.999.999.999")).toBe(false);
+      expect(isValidIp("")).toBe(false);
+    });
   });
 });

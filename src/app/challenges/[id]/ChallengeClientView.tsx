@@ -8,8 +8,17 @@ interface Props {
   challenge: Challenge;
 }
 
+const TABS = [
+  { id: "specs", label: "Overview & Specs" },
+  { id: "evaluation", label: "Auto-Evaluation Benchmark" },
+  { id: "leaderboard", label: "Live Leaderboard" },
+  { id: "submit", label: "Submit Solution" },
+] as const;
+
+type TabId = (typeof TABS)[number]["id"];
+
 export default function ChallengeClientView({ challenge }: Props) {
-  const [tab, setTab] = useState<"specs" | "evaluation" | "leaderboard" | "submit">("specs");
+  const [tab, setTab] = useState<TabId>("specs");
 
   // Solution submission form state
   const [repoUrl, setRepoUrl] = useState("");
@@ -26,15 +35,25 @@ export default function ChallengeClientView({ challenge }: Props) {
   // Time remaining calculator (neutral initial state to prevent hydration mismatches)
   const [timeLeft, setTimeLeft] = useState<string>("--:--:--");
   const [isClosed, setIsClosed] = useState<boolean>(false);
+  const [isUpcoming, setIsUpcoming] = useState<boolean>(false);
 
   useEffect(() => {
     function updateCountdown() {
-      const diff = new Date(challenge.closesAt).getTime() - Date.now();
-      if (diff <= 0 || challenge.status !== "LIVE") {
-        setTimeLeft("Closed");
+      if (challenge.status === "UPCOMING") {
+        setTimeLeft("Not Open Yet");
         setIsClosed(true);
+        setIsUpcoming(true);
         return;
       }
+
+      const diff = new Date(challenge.closesAt).getTime() - Date.now();
+      if (diff <= 0 || challenge.status === "ENDED") {
+        setTimeLeft("Closed");
+        setIsClosed(true);
+        setIsUpcoming(false);
+        return;
+      }
+
       const hours = Math.floor(diff / (1000 * 60 * 60));
       const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
       const secs = Math.floor((diff % (1000 * 60)) / 1000);
@@ -42,12 +61,37 @@ export default function ChallengeClientView({ challenge }: Props) {
         `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`
       );
       setIsClosed(false);
+      setIsUpcoming(false);
     }
 
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
   }, [challenge.closesAt, challenge.status]);
+
+  const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
+    let targetIndex = -1;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      targetIndex = (currentIndex + 1) % TABS.length;
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      targetIndex = (currentIndex - 1 + TABS.length) % TABS.length;
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      targetIndex = 0;
+    } else if (e.key === "End") {
+      e.preventDefault();
+      targetIndex = TABS.length - 1;
+    }
+
+    if (targetIndex !== -1) {
+      const targetTab = TABS[targetIndex];
+      setTab(targetTab.id);
+      const targetElement = document.getElementById(`tab-${targetTab.id}`);
+      targetElement?.focus();
+    }
+  };
 
   const handleSubmitSolution = (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,7 +159,7 @@ export default function ChallengeClientView({ challenge }: Props) {
           </div>
           <div>
             <p className="font-mono text-xs uppercase tracking-wider text-muted-dark">
-              Closes In
+              {challenge.status === "UPCOMING" ? "Opens In" : "Closes In"}
             </p>
             <p className="mt-1 font-mono text-2xl font-bold text-accent">
               {timeLeft}
@@ -132,18 +176,13 @@ export default function ChallengeClientView({ challenge }: Props) {
         </div>
       </div>
 
-      {/* Accessible Tab List */}
+      {/* Accessible Tab List with Roving Keyboard Navigation */}
       <div
         role="tablist"
         aria-label="Challenge sections"
         className="flex border-b border-ink-line gap-2 overflow-x-auto pb-px"
       >
-        {[
-          { id: "specs", label: "Overview & Specs" },
-          { id: "evaluation", label: "Auto-Evaluation Benchmark" },
-          { id: "leaderboard", label: "Live Leaderboard" },
-          { id: "submit", label: "Submit Solution" },
-        ].map((t) => (
+        {TABS.map((t, idx) => (
           <button
             key={t.id}
             id={`tab-${t.id}`}
@@ -151,7 +190,8 @@ export default function ChallengeClientView({ challenge }: Props) {
             aria-selected={tab === t.id}
             aria-controls={`panel-${t.id}`}
             tabIndex={tab === t.id ? 0 : -1}
-            onClick={() => setTab(t.id as any)}
+            onClick={() => setTab(t.id)}
+            onKeyDown={(e) => handleTabKeyDown(e, idx)}
             className={`whitespace-nowrap px-4 py-3 text-sm font-semibold transition-colors border-b-2 ${
               tab === t.id
                 ? "border-accent text-accent"
@@ -307,7 +347,11 @@ export default function ChallengeClientView({ challenge }: Props) {
             Provide your public repository. The automated evaluation pipeline will clone and benchmark your build against standard test cases.
           </p>
 
-          {isClosed ? (
+          {isUpcoming ? (
+            <div className="mt-6 rounded-xl border border-amber-500/30 bg-amber-950/20 p-5 text-sm text-amber-300">
+              This challenge has not opened yet. Submissions will open once the challenge begins.
+            </div>
+          ) : isClosed ? (
             <div className="mt-6 rounded-xl border border-red-500/30 bg-red-950/20 p-5 text-sm text-red-300">
               This challenge is currently closed for new submissions.
             </div>

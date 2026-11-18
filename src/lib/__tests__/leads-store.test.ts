@@ -7,7 +7,7 @@ import {
   _resetLeadsForTesting,
   setStorageAdapter,
 } from "../leads-store";
-import { MemoryLeadsAdapter, FileLeadsAdapter } from "../storage-adapter";
+import { MemoryLeadsAdapter, FileLeadsAdapter, createStorageAdapter } from "../storage-adapter";
 import path from "path";
 import fs from "fs";
 
@@ -170,6 +170,28 @@ describe("leads-store", () => {
       if (fs.existsSync(testFile)) {
         await fs.promises.unlink(testFile);
       }
+    });
+
+    it("should return empty list without creating file when file is missing", async () => {
+      const missingFile = path.join(process.cwd(), ".data", "non-existent-test.json");
+      if (fs.existsSync(missingFile)) fs.unlinkSync(missingFile);
+
+      const adapter = new FileLeadsAdapter(missingFile);
+      const leads = await adapter.listLeads();
+      expect(leads).toEqual([]);
+      expect(fs.existsSync(missingFile)).toBe(false);
+    });
+
+    it("should properly normalize LEADS_STORAGE_ADAPTER values with padding", () => {
+      const orig = process.env.LEADS_STORAGE_ADAPTER;
+
+      process.env.LEADS_STORAGE_ADAPTER = " memory ";
+      expect(createStorageAdapter() instanceof MemoryLeadsAdapter).toBe(true);
+
+      process.env.LEADS_STORAGE_ADAPTER = " file ";
+      expect(createStorageAdapter() instanceof FileLeadsAdapter).toBe(true);
+
+      process.env.LEADS_STORAGE_ADAPTER = orig;
     });
   });
 });
